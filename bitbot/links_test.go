@@ -2,6 +2,8 @@ package bitbot
 
 import (
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -46,17 +48,36 @@ func TestGetHTMLTitleWithSmallTitle(t *testing.T) {
 	}
 }
 
-func TestGetHTMLTitleWithEmptyTitle(t *testing.T) {
+func TestLookupPageTitle(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "<html><head><title>thetitle</title></head></html>")
+	}))
 
-	r, w := io.Pipe()
-	go func() {
-		io.WriteString(w, "<html><head><title>")
-		io.WriteString(w, "</title></head></html>")
-		w.Close()
-	}()
-	_, found := GetHtmlTitle(r)
-	if found {
-		t.Log("Returned true on an empty title")
+	title := lookupPageTitle("take a look at this " + testServer.URL)
+	if title != "thetitle" {
+		t.Log("Title not extracted from response")
+		t.Fail()
+	}
+}
+
+func TestLookupPageTitleRedirect(t *testing.T) {
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect/" {
+			t.Log("Redirecting...")
+			http.Redirect(w, r, "/good/", 302)
+		} else {
+			if !strings.HasSuffix(r.Header.Get("Referer"), "/redirect/") {
+				t.Log("Redirect was bypassed")
+				t.Fail()
+			}
+			io.WriteString(w, "<html><head><title>the_redirect_title</title></head></html>")
+		}
+	}))
+
+	title := lookupPageTitle("take a look at this " + testServer.URL + "/redirect/")
+	if title != "the_redirect_title" {
+		t.Log("Title not extracted from response")
 		t.Fail()
 	}
 }
